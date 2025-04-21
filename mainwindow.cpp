@@ -6,20 +6,22 @@
 #include <QFile>
 #include <QTextStream>
 #include <QRegularExpression>
-#include <QFileinfo>
+#include <QDir>
 #include <QDebug>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow),
-    m_iCurrentLyricLine(0)
+    m_iCurrentLyricLine(0),
+    m_iCurrentSongIndex(0)
 {
     ui->setupUi(this);
-    LoadQss(QApplication::applicationDirPath() + "/style.qss");
+    LoadQss(QApplication::applicationDirPath() + "/styles/style.qss");
     ui->label_cover->setMinimumSize(QSize(200, 200));
 
     m_pPlayer = new QMediaPlayer;
     QAudioOutput* audioOutput = new QAudioOutput;
+    audioOutput->setVolume(100);
     m_pPlayer->setAudioOutput(audioOutput);
     connect(m_pPlayer, &QMediaPlayer::positionChanged, ui->playSlider, [this](qint64 position)
     {
@@ -56,15 +58,18 @@ MainWindow::MainWindow(QWidget *parent)
                 if (!image.isNull())
                 {
                     m_currentCoverPixmap = QPixmap::fromImage(image);
-                    ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                    ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
                 }
             }
     });
-    QFileInfo fileInfo("C:/Users/Ze/Music/王菲-如愿.mp3");
-    m_pPlayer->setSource(QUrl::fromLocalFile(fileInfo.absoluteFilePath()));
-    m_lyrics.clear();
-    m_lyrics = ParseLrcFile(fileInfo.absolutePath() + "/" + fileInfo.baseName() + ".lrc");
-    audioOutput->setVolume(100);
+
+    SetPlayList("C:/Users/Ze/Music");
+
+    if (!m_playList.isEmpty())
+    {
+        m_pPlayer->setSource(QUrl::fromLocalFile(m_playList.first().absoluteFilePath()));
+        LoadLyric(m_playList.first());
+    }
 }
 
 MainWindow::~MainWindow()
@@ -87,7 +92,8 @@ QList<LyricLine> MainWindow::ParseLrcFile(const QString& filePath)
     QList<LyricLine> lyrics;
 
     QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) 
+    {
         qWarning() << "Failed to open file:" << filePath;
         return lyrics;
     }
@@ -95,17 +101,20 @@ QList<LyricLine> MainWindow::ParseLrcFile(const QString& filePath)
     QTextStream in(&file);
     QRegularExpression timeTagRegex(R"(\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\])");
 
-    while (!in.atEnd()) {
+    while (!in.atEnd()) 
+    {
         QString line = in.readLine();
         QRegularExpressionMatchIterator i = timeTagRegex.globalMatch(line);
 
         int lastIndex = 0;
-        while (i.hasNext()) {
+        while (i.hasNext()) 
+        {
             QRegularExpressionMatch match = i.next();
             int minutes = match.captured(1).toInt();
             int seconds = match.captured(2).toInt();
             int milliseconds = match.captured(3).toInt();
-            if (match.captured(3).length() == 2) {
+            if (match.captured(3).length() == 2) 
+            {
                 milliseconds *= 10;
             }
 
@@ -140,6 +149,27 @@ void MainWindow::LoadQss(const QString& qssFilename)
     qssFile.close();
 }
 
+void MainWindow::SetPlayList(const QString& folderPath)
+{
+    // 定义常见的音频文件扩展名
+    QStringList audioExtensions = 
+    {
+        "*.mp3", "*.wav", "*.ogg", "*.flac", "*.aac",
+        "*.wma", "*.m4a", "*.aiff", "*.opus"
+    };
+
+    QDir directory(folderPath);
+    m_playList = directory.entryInfoList(audioExtensions, QDir::Files | QDir::NoDotAndDotDot);
+}
+
+void MainWindow::LoadLyric(const QFileInfo& info)
+{
+    ui->label_lyric->clear();
+    m_iCurrentLyricLine = 0;
+    m_lyrics.clear();
+    m_lyrics = ParseLrcFile(info.absolutePath() + "/" + info.baseName() + ".lrc");
+}
+
 void MainWindow::on_pushButton_play_clicked()
 {
     QMediaPlayer::PlaybackState status = m_pPlayer->playbackState();
@@ -151,5 +181,44 @@ void MainWindow::on_pushButton_play_clicked()
     {
         m_pPlayer->pause();
     }
+}
+
+
+void MainWindow::on_pushButton_previous_clicked()
+{
+    if (m_playList.isEmpty())
+    {
+        return;
+    }
+
+    --m_iCurrentSongIndex;
+    if (m_iCurrentSongIndex < 0)
+    {
+        m_iCurrentSongIndex = m_playList.size() - 1;
+    }
+
+    m_pPlayer->stop();
+    m_pPlayer->setSource(QUrl::fromLocalFile(m_playList[m_iCurrentSongIndex].absoluteFilePath()));
+    LoadLyric(m_playList[m_iCurrentSongIndex]);
+    m_pPlayer->play();
+}
+
+void MainWindow::on_pushButton_next_clicked()
+{
+    if (m_playList.isEmpty())
+    {
+        return;
+    }
+
+    ++m_iCurrentSongIndex;
+    if (m_iCurrentSongIndex >= m_playList.size())
+    {
+        m_iCurrentSongIndex = 0;
+    }
+
+    m_pPlayer->stop();
+    m_pPlayer->setSource(QUrl::fromLocalFile(m_playList[m_iCurrentSongIndex].absoluteFilePath()));
+    LoadLyric(m_playList[m_iCurrentSongIndex]);
+    m_pPlayer->play();
 }
 
