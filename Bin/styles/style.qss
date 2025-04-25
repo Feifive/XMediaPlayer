@@ -30,3 +30,18 @@ QSlider::add-page:horizontal {
     background: #CAC5C8;
     margin: 0 0 0 -3px;
 }
+
+QWidget#widget_view {
+    background-color: #FFF;
+}
+
+QListWidget#listWidget_lyricsView {
+    font-size: 20px;
+    color: #847e78;
+    text-align: center;
+    border: none;
+}
+
+QListWidget#listWidget_lyricsView::item:selected {
+    color: black;
+}

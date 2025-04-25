@@ -40,6 +40,9 @@ private:
     void LoadQss(const QString& qssFilename);
     void SetPlayList(const QString& folderPath);
     void LoadLyric(const QFileInfo& info);
+    bool GetEmbeddedLyrics(const QString& fileName);
+    bool LoadCover(const QString& fileName, QImage& image);
+    void AddLyricsToLyricsView(const QList<LyricLine>& lyrics);
 
 private:
     Ui::MainWindow *ui;

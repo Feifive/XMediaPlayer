@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
+#include "3rdparty/taglib/include/taglib_export.h"
 #include <QMediaPlayer>
 #include <QMediaMetaData>
 #include <QAudioOutput>
@@ -8,6 +9,14 @@
 #include <QRegularExpression>
 #include <QDir>
 #include <QDebug>
+#include <qfilesystemwatcher.h>
+#include "3rdparty/taglib/include/mpegfile.h"
+#include "3rdparty/taglib/include/id3v2tag.h"
+#include "3rdparty/taglib/include/attachedpictureframe.h"
+#include "3rdparty/taglib/include/fileref.h"
+#include "3rdparty/taglib/include/tag.h"
+#include "3rdparty/taglib/include/uniquefileidentifierframe.h"
+#include "3rdparty/taglib/include/unsynchronizedlyricsframe.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -17,7 +26,10 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     LoadQss(QApplication::applicationDirPath() + "/styles/style.qss");
-    ui->label_cover->setMinimumSize(QSize(200, 200));
+    QFileSystemWatcher* pWatcher = new QFileSystemWatcher(QStringList() << QApplication::applicationDirPath() + "/styles/style.qss", this);
+    connect(pWatcher, &QFileSystemWatcher::fileChanged, this, &MainWindow::LoadQss);
+
+    ui->label_cover->setMinimumSize(QSize(100, 100));
 
     m_pPlayer = new QMediaPlayer;
     QAudioOutput* audioOutput = new QAudioOutput;
@@ -27,9 +39,10 @@ MainWindow::MainWindow(QWidget *parent)
     {
         if (m_iCurrentLyricLine <= m_lyrics.size() - 1)
         {
-            if (position > m_lyrics[m_iCurrentLyricLine].timeMs)
+            if (position > m_lyrics[m_iCurrentLyricLine].timeMs && m_lyrics[m_iCurrentLyricLine].timeMs != -1)
             {
-                ui->label_lyric->setText(m_lyrics[m_iCurrentLyricLine].text);
+                ui->listWidget_lyricsView->setCurrentRow(m_iCurrentLyricLine);
+                ui->listWidget_lyricsView->scrollToItem(ui->listWidget_lyricsView->currentItem());
                 ++m_iCurrentLyricLine;
             }
         }
@@ -47,19 +60,10 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->label_totalTime->setText(strDuration);
                 ui->playSlider->setRange(0, duration);
             }
-            QVariant coverData =  metaData.value(QMediaMetaData::CoverArtImage);
-            if (!coverData.isValid())
+
+            if (!m_currentCoverPixmap.isNull())
             {
-                coverData = metaData.value(QMediaMetaData::ThumbnailImage);
-            }
-            if (coverData.isValid())
-            {
-                QImage image = coverData.value<QImage>();
-                if (!image.isNull())
-                {
-                    m_currentCoverPixmap = QPixmap::fromImage(image);
-                    ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-                }
+                ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             }
     });
 
@@ -69,6 +73,15 @@ MainWindow::MainWindow(QWidget *parent)
     {
         m_pPlayer->setSource(QUrl::fromLocalFile(m_playList.first().absoluteFilePath()));
         LoadLyric(m_playList.first());
+    }
+
+    QImage cover;
+
+    bool bLoad = LoadCover("C:/Users/Ze/Music/王菲-如愿.mp3", cover);
+
+    if (bLoad && !cover.isNull())
+    {
+        m_currentCoverPixmap = QPixmap::fromImage(cover);
     }
 }
 
@@ -81,7 +94,8 @@ void MainWindow::resizeEvent(QResizeEvent* event)
 {
     if (!m_currentCoverPixmap.isNull())
     {
-        ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+        QSize size = ui->label_cover->size();
+        ui->label_cover->setPixmap(m_currentCoverPixmap.scaled(ui->label_cover->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
 
     return QMainWindow::resizeEvent(event);
@@ -164,10 +178,103 @@ void MainWindow::SetPlayList(const QString& folderPath)
 
 void MainWindow::LoadLyric(const QFileInfo& info)
 {
-    ui->label_lyric->clear();
     m_iCurrentLyricLine = 0;
     m_lyrics.clear();
-    m_lyrics = ParseLrcFile(info.absolutePath() + "/" + info.baseName() + ".lrc");
+    ui->listWidget_lyricsView->clear();
+    QString strLcrFilename = info.absolutePath() + "/" + info.baseName() + ".lrc";
+    if (QFile::exists(strLcrFilename))
+    {
+        m_lyrics = ParseLrcFile(strLcrFilename);
+    }
+    else
+    {
+        GetEmbeddedLyrics(info.absoluteFilePath());
+    }
+
+    if (m_lyrics.size() > 0)
+    {
+        AddLyricsToLyricsView(m_lyrics);
+    }
+}
+
+bool MainWindow::GetEmbeddedLyrics(const QString& fileName)
+{
+    if (!fileName.endsWith("mp3"))
+    {
+        return false;
+    }
+
+    TagLib::MPEG::File mpegFile(fileName.toStdWString().c_str());
+    if (!mpegFile.isValid() || !mpegFile.hasID3v2Tag())
+    {
+        return false;
+    }
+
+    // 获取所有歌词帧
+    TagLib::ID3v2::FrameList frames = mpegFile.ID3v2Tag()->frameListMap()["USLT"];
+    if (frames.isEmpty())
+    {
+        return false;
+    }
+
+    // 取第一个USLT帧内容
+    TagLib::ID3v2::UnsynchronizedLyricsFrame* lyricsFrame = dynamic_cast<TagLib::ID3v2::UnsynchronizedLyricsFrame*>(frames.front());
+    if (!lyricsFrame)
+    {
+        return false;
+    }
+
+    // 处理编码（中文可能需要转换）
+    QString strLyrics = QString::fromStdString(lyricsFrame->text().toCString(true));
+    QStringList listLyrics = strLyrics.split("\n");
+    for(const auto& lyric : listLyrics)
+    {
+        m_lyrics.append({ -1, lyric });
+    }
+
+    return true;
+}
+
+bool MainWindow::LoadCover(const QString& fileName, QImage& image)
+{
+    TagLib::MPEG::File mpegFile(fileName.toStdWString().c_str());
+    if (!mpegFile.isValid() || !mpegFile.hasID3v2Tag())
+    {
+        return false;
+    }
+
+    // 2. 获取所有 APIC（专辑封面）帧
+    TagLib::ID3v2::FrameList frames = mpegFile.ID3v2Tag()->frameListMap()["APIC"];
+    if (frames.isEmpty()) 
+    {
+        return false;
+    }
+
+    // 3. 查找第一个封面图片帧
+    auto* coverFrame = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame*>(frames.front());
+    if (!coverFrame) 
+    {
+        return false;
+    }
+
+    // 4. 将图片数据转换为 QImage
+    QByteArray imageData(coverFrame->picture().data(), coverFrame->picture().size());
+    if (!image.loadFromData(imageData))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+void MainWindow::AddLyricsToLyricsView(const QList<LyricLine>& lyrics)
+{
+    for (const auto& lyric : lyrics)
+    {
+        QListWidgetItem* pItem = new QListWidgetItem(lyric.text);
+        pItem->setTextAlignment(Qt::AlignCenter);
+        ui->listWidget_lyricsView->addItem(pItem);
+    }
 }
 
 void MainWindow::on_pushButton_play_clicked()
