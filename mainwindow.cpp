@@ -29,7 +29,7 @@ MainWindow::MainWindow(QWidget *parent)
     QFileSystemWatcher* pWatcher = new QFileSystemWatcher(QStringList() << QApplication::applicationDirPath() + "/styles/style.qss", this);
     connect(pWatcher, &QFileSystemWatcher::fileChanged, this, &MainWindow::LoadQss);
 
-    ui->label_cover->setMinimumSize(QSize(100, 100));
+    ui->label_cover->setMinimumSize(QSize(200, 200));
 
     m_pPlayer = new QMediaPlayer;
     QAudioOutput* audioOutput = new QAudioOutput;
@@ -73,15 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
     {
         m_pPlayer->setSource(QUrl::fromLocalFile(m_playList.first().absoluteFilePath()));
         LoadLyric(m_playList.first());
-    }
-
-    QImage cover;
-
-    bool bLoad = LoadCover("C:/Users/Ze/Music/王菲-如愿.mp3", cover);
-
-    if (bLoad && !cover.isNull())
-    {
-        m_currentCoverPixmap = QPixmap::fromImage(cover);
+        LoadCover(m_playList.first().absoluteFilePath());
     }
 }
 
@@ -188,7 +180,7 @@ void MainWindow::LoadLyric(const QFileInfo& info)
     }
     else
     {
-        GetEmbeddedLyrics(info.absoluteFilePath());
+        GetEmbeddedLyrics(info.absoluteFilePath(), m_lyrics);
     }
 
     if (m_lyrics.size() > 0)
@@ -197,14 +189,14 @@ void MainWindow::LoadLyric(const QFileInfo& info)
     }
 }
 
-bool MainWindow::GetEmbeddedLyrics(const QString& fileName)
+bool MainWindow::GetEmbeddedLyrics(const QString& filename, QList<LyricLine>& lyrics)
 {
-    if (!fileName.endsWith("mp3"))
+    if (!filename.endsWith("mp3"))
     {
         return false;
     }
 
-    TagLib::MPEG::File mpegFile(fileName.toStdWString().c_str());
+    TagLib::MPEG::File mpegFile(filename.toStdWString().c_str());
     if (!mpegFile.isValid() || !mpegFile.hasID3v2Tag())
     {
         return false;
@@ -229,15 +221,20 @@ bool MainWindow::GetEmbeddedLyrics(const QString& fileName)
     QStringList listLyrics = strLyrics.split("\n");
     for(const auto& lyric : listLyrics)
     {
-        m_lyrics.append({ -1, lyric });
+        lyrics.append({ -1, lyric });
     }
 
     return true;
 }
 
-bool MainWindow::LoadCover(const QString& fileName, QImage& image)
+bool MainWindow::GetEmbeddedCover(const QString& filename, QImage& image)
 {
-    TagLib::MPEG::File mpegFile(fileName.toStdWString().c_str());
+    if (!filename.endsWith("mp3"))
+    {
+        return false;
+    }
+
+    TagLib::MPEG::File mpegFile(filename.toStdWString().c_str());
     if (!mpegFile.isValid() || !mpegFile.hasID3v2Tag())
     {
         return false;
@@ -245,14 +242,14 @@ bool MainWindow::LoadCover(const QString& fileName, QImage& image)
 
     // 2. 获取所有 APIC（专辑封面）帧
     TagLib::ID3v2::FrameList frames = mpegFile.ID3v2Tag()->frameListMap()["APIC"];
-    if (frames.isEmpty()) 
+    if (frames.isEmpty())
     {
         return false;
     }
 
     // 3. 查找第一个封面图片帧
     auto* coverFrame = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame*>(frames.front());
-    if (!coverFrame) 
+    if (!coverFrame)
     {
         return false;
     }
@@ -265,6 +262,29 @@ bool MainWindow::LoadCover(const QString& fileName, QImage& image)
     }
 
     return true;
+}
+
+bool MainWindow::LoadCover(const QString& filename)
+{
+    ui->label_cover->clear();
+
+    QImage coverImage;
+    GetEmbeddedCover(filename, coverImage);
+
+    if (!coverImage.isNull())
+    {
+        m_currentCoverPixmap = QPixmap::fromImage(coverImage);
+
+        return true;
+    }
+    else
+    {
+        m_currentCoverPixmap.load(":/Resources/icons/NoCover.svg");
+
+        return false;
+    }
+
+    return false;
 }
 
 void MainWindow::AddLyricsToLyricsView(const QList<LyricLine>& lyrics)
@@ -307,6 +327,7 @@ void MainWindow::on_pushButton_previous_clicked()
     m_pPlayer->stop();
     m_pPlayer->setSource(QUrl::fromLocalFile(m_playList[m_iCurrentSongIndex].absoluteFilePath()));
     LoadLyric(m_playList[m_iCurrentSongIndex]);
+    LoadCover(m_playList[m_iCurrentSongIndex].absoluteFilePath());
     m_pPlayer->play();
 }
 
@@ -326,6 +347,7 @@ void MainWindow::on_pushButton_next_clicked()
     m_pPlayer->stop();
     m_pPlayer->setSource(QUrl::fromLocalFile(m_playList[m_iCurrentSongIndex].absoluteFilePath()));
     LoadLyric(m_playList[m_iCurrentSongIndex]);
+    LoadCover(m_playList[m_iCurrentSongIndex].absoluteFilePath());
     m_pPlayer->play();
 }
 

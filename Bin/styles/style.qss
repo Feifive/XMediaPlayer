@@ -6,29 +6,28 @@ QSlider::groove:horizontal {
     height: 6px;
     border-radius: 3px;
     background: #CAC5C8;
-    margin: 0;
 }
 
 QSlider::handle:horizontal {
     width: 12px;
     height: 12px;
     margin: -3px 0;
-    background: #FFF;
     border-radius: 6px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #FFF;
 }
 
 QSlider::sub-page:horizontal {
     height: 6px;
     border-radius: 3px;
     background: #646264;
-    margin: 0 -3px 0 0;
 }
 
 QSlider::add-page:horizontal {
     height: 6px;
     border-radius: 3px;
-    background: #CAC5C8;
-    margin: 0 0 0 -3px;
 }
 
 QWidget#widget_view {

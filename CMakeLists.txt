@@ -42,6 +42,7 @@ set(PROJECT_SOURCES
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(MultiMediaDemo
         ${PROJECT_SOURCES}
+        Resources.qrc
     )
 else()
     if(ANDROID)
